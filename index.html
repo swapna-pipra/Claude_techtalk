@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>Jira Issue Explorer</title>
+<title>Jira Issue Explorer + QA Generator</title>
 <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/css/bootstrap.min.css" rel="stylesheet">
 <link href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.3/font/bootstrap-icons.min.css" rel="stylesheet">
 <style>
@@ -49,16 +49,65 @@
   #loadingSpinner { display: none; }
   #results        { display: none; }
   #errorAlert     { display: none; }
+
+  /* Tab navigation styles */
+  .module-tabs { background: #fff; border-bottom: 2px solid #e9ecef; }
+  .module-tabs .nav-link { color: #6B778C; font-weight: 500; border: none; padding: .75rem 1.5rem; border-bottom: 3px solid transparent; margin-bottom: -2px; }
+  .module-tabs .nav-link.active { color: var(--jira); border-bottom-color: var(--jira); background: transparent; }
+  .module-tabs .nav-link:hover:not(.active) { color: #333; border-bottom-color: #ddd; }
+
+  /* Video analysis styles */
+  .upload-zone { border: 2px dashed #dee2e6; border-radius: 8px; padding: 2rem; text-align: center; transition: border-color .2s; }
+  .upload-zone:hover { border-color: var(--jira); }
+  .upload-zone.has-file { border-color: var(--jira); border-style: solid; background: #f8f9ff; }
+  .file-info { font-size: .9rem; color: #555; }
+  .summary-badges .badge { font-size: .85rem; padding: .5rem .75rem; }
+  .priority-critical { background: #CD1316; }
+  .priority-high { background: #E9494A; }
+  .priority-medium { background: #E97F33; }
+  .priority-low { background: #2D8738; }
+  .accordion-button:not(.collapsed) { background: #e8f0fe; color: var(--jira); }
+  .test-case-table th { font-size: .78rem; text-transform: uppercase; letter-spacing: .04em; color: #6B778C; }
+  .test-case-table td { font-size: .85rem; vertical-align: top; }
+  .edge-case-category { font-weight: 600; color: var(--jira); text-transform: capitalize; }
+  .checklist-item { padding: .4rem 0; border-bottom: 1px solid #f1f1f1; }
+  .checklist-item:last-child { border-bottom: none; }
+  #videoResults { display: none; }
+  #videoProcessing { display: none; }
+  #videoProgress { display: none; }
+  #videoError { display: none; }
 </style>
 </head>
 <body>
 
 <nav class="navbar navbar-dark px-3 py-2">
   <span class="navbar-brand fw-bold fs-6">
-    <i class="bi bi-kanban-fill me-2"></i>Jira Issue Explorer
+    <i class="bi bi-kanban-fill me-2"></i>Jira Issue Explorer + QA Generator
   </span>
 </nav>
 
+<!-- Module Tabs -->
+<div class="module-tabs">
+  <div class="container">
+    <ul class="nav nav-tabs border-0" id="moduleTabs">
+      <li class="nav-item">
+        <a class="nav-link active" href="#" data-module="id-lookup" onclick="TabNav.switchTo('id-lookup');return false;">
+          <i class="bi bi-search me-1"></i>ID-Based Lookup
+        </a>
+      </li>
+      <li class="nav-item">
+        <a class="nav-link" href="#" data-module="video-analysis" onclick="TabNav.switchTo('video-analysis');return false;">
+          <i class="bi bi-camera-video me-1"></i>Video Analysis
+        </a>
+      </li>
+    </ul>
+  </div>
+</div>
+
+<!-- ═══════════════════════════════════════════════════════ -->
+<!-- MODULE 1: ID-Based Lookup -->
+<!-- ═══════════════════════════════════════════════════════ -->
+<div id="module-id-lookup">
 <div class="container py-4">
 
   <!-- Search -->
@@ -89,10 +138,77 @@
 
   <!-- Results -->
   <div id="results">
-
     <div class="card mb-3" id="issueHeader"></div>
-
     <div class="row g-3 mb-3" id="statsRow"></div>
+
+    <!-- Generate AI Test Cases Button -->
+    <div class="card mb-3 p-3">
+      <div class="d-flex align-items-center justify-content-between">
+        <div>
+          <h6 class="mb-1"><i class="bi bi-cpu text-primary me-2"></i>AI Test Case Generator</h6>
+          <p class="text-muted small mb-0">Generate test cases from the story description using Gemini AI</p>
+        </div>
+        <button class="btn btn-primary" id="generateTestCasesBtn" onclick="AITestGen.generate()">
+          <i class="bi bi-magic me-1"></i>Generate Test Cases
+        </button>
+      </div>
+    </div>
+
+    <!-- AI Generation Loading -->
+    <div id="aiGenLoading" class="card mb-3 p-4 text-center" style="display:none;">
+      <div class="spinner-border text-primary mb-2" role="status"></div>
+      <p class="text-muted small mb-0">Generating test cases from story description...</p>
+    </div>
+
+    <!-- AI Generation Error -->
+    <div id="aiGenError" class="alert alert-danger mb-3" style="display:none;">
+      <i class="bi bi-exclamation-triangle-fill me-2"></i><span id="aiGenErrorMsg"></span>
+    </div>
+
+    <!-- AI Generated Results -->
+    <div id="aiGenResults" style="display:none;">
+      <div class="card mb-3">
+        <div class="card-header bg-primary text-white d-flex justify-content-between align-items-center">
+          <span><i class="bi bi-cpu me-2"></i>AI-Generated Test Cases for <strong id="aiGenIssueKey"></strong></span>
+          <div class="d-flex flex-wrap gap-2" id="aiGenSummaryBadges"></div>
+        </div>
+        <div class="card-body p-0">
+          <ul class="nav nav-tabs px-3 pt-2 border-bottom-0" id="aiGenTabs">
+            <li class="nav-item">
+              <a class="nav-link active" href="#" data-aitab="scenarios"
+                 onclick="AITestGen.showTab('scenarios');return false;">
+                Scenarios <span class="badge bg-primary ms-1" id="ai-cnt-scenarios">0</span>
+              </a>
+            </li>
+            <li class="nav-item">
+              <a class="nav-link" href="#" data-aitab="testcases"
+                 onclick="AITestGen.showTab('testcases');return false;">
+                Test Cases <span class="badge bg-success ms-1" id="ai-cnt-testcases">0</span>
+              </a>
+            </li>
+            <li class="nav-item">
+              <a class="nav-link" href="#" data-aitab="negative"
+                 onclick="AITestGen.showTab('negative');return false;">
+                Negative <span class="badge bg-danger ms-1" id="ai-cnt-negative">0</span>
+              </a>
+            </li>
+            <li class="nav-item">
+              <a class="nav-link" href="#" data-aitab="edge"
+                 onclick="AITestGen.showTab('edge');return false;">
+                Edge Cases <span class="badge bg-warning text-dark ms-1" id="ai-cnt-edge">0</span>
+              </a>
+            </li>
+            <li class="nav-item">
+              <a class="nav-link" href="#" data-aitab="uiux"
+                 onclick="AITestGen.showTab('uiux');return false;">
+                UI/UX <span class="badge bg-info ms-1" id="ai-cnt-uiux">0</span>
+              </a>
+            </li>
+          </ul>
+          <div id="aiGenTabContent" class="p-3"></div>
+        </div>
+      </div>
+    </div>
 
     <div class="card">
       <div class="card-body p-0">
@@ -126,12 +242,203 @@
         <div id="tabContent" class="p-3"></div>
       </div>
     </div>
+  </div>
+
+</div>
+</div>
+
+<!-- ═══════════════════════════════════════════════════════ -->
+<!-- MODULE 2: Video Analysis -->
+<!-- ═══════════════════════════════════════════════════════ -->
+<div id="module-video-analysis" style="display:none;">
+<div class="container py-4">
+
+  <!-- Upload Card -->
+  <div class="row justify-content-center mb-4">
+    <div class="col-lg-8">
+      <div class="card p-4">
+        <h5 class="text-center mb-3"><i class="bi bi-camera-video text-primary me-2"></i>Video Workflow Analysis</h5>
+        <p class="text-center text-muted small mb-3">Upload a screen recording to automatically generate QA test cases</p>
+
+        <div class="upload-zone" id="uploadZone">
+          <i class="bi bi-cloud-arrow-up fs-1 text-muted d-block mb-2"></i>
+          <input type="file" class="form-control" id="videoFileInput"
+                 accept=".mp4,.webm,.avi,.mov,.mkv" onchange="VideoAnalysis.onFileSelect(this)">
+          <div class="file-info mt-2" id="fileInfo" style="display:none;">
+            <i class="bi bi-file-earmark-play text-primary me-1"></i>
+            <span id="fileName"></span>
+            <span class="text-muted ms-2" id="fileSize"></span>
+          </div>
+        </div>
+
+        <!-- File validation error -->
+        <div class="alert alert-danger mt-3" id="fileError" style="display:none;">
+          <i class="bi bi-exclamation-triangle-fill me-2"></i><span id="fileErrorMsg"></span>
+        </div>
+
+        <button class="btn btn-primary btn-lg w-100 mt-3" id="analyzeBtn"
+                onclick="VideoAnalysis.upload()" disabled>
+          <i class="bi bi-cpu me-2"></i>Analyze Video
+        </button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Upload Progress -->
+  <div id="videoProgress" class="row justify-content-center mb-4">
+    <div class="col-lg-8">
+      <div class="card p-4">
+        <h6 class="mb-2">Uploading video...</h6>
+        <div class="progress" style="height: 24px;">
+          <div class="progress-bar progress-bar-striped progress-bar-animated bg-primary"
+               id="uploadProgressBar" role="progressbar" style="width: 0%">0%</div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Processing Indicator -->
+  <div id="videoProcessing" class="row justify-content-center mb-4">
+    <div class="col-lg-8">
+      <div class="card p-4 text-center">
+        <div class="spinner-border text-primary mb-3" role="status"></div>
+        <h6>Analyzing video...</h6>
+        <p class="text-muted small mb-0">Extracting frames and generating test artifacts with AI. This may take a minute.</p>
+      </div>
+    </div>
+  </div>
+
+  <!-- Video Error -->
+  <div id="videoError" class="row justify-content-center mb-4">
+    <div class="col-lg-8">
+      <div class="alert alert-danger">
+        <i class="bi bi-exclamation-triangle-fill me-2"></i><span id="videoErrorMsg"></span>
+        <button class="btn btn-outline-danger btn-sm ms-3" onclick="VideoAnalysis.retry()">
+          <i class="bi bi-arrow-clockwise me-1"></i>Retry
+        </button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Video Results -->
+  <div id="videoResults">
+
+    <!-- Summary Badges -->
+    <div class="row justify-content-center mb-3">
+      <div class="col-lg-10">
+        <div class="card p-3">
+          <div class="d-flex flex-wrap justify-content-center gap-2 summary-badges" id="artifactSummary"></div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Artifact Accordion -->
+    <div class="row justify-content-center">
+      <div class="col-lg-10">
+        <div class="accordion" id="artifactAccordion">
+
+          <!-- 1. Test Scenarios -->
+          <div class="accordion-item">
+            <h2 class="accordion-header">
+              <button class="accordion-button" type="button" data-bs-toggle="collapse" data-bs-target="#collapseScenarios">
+                <i class="bi bi-diagram-3 me-2 text-primary"></i>Test Scenarios
+                <span class="badge bg-primary ms-2" id="badge-scenarios">0</span>
+              </button>
+            </h2>
+            <div id="collapseScenarios" class="accordion-collapse collapse show" data-bs-parent="">
+              <div class="accordion-body" id="scenariosContent"></div>
+            </div>
+          </div>
+
+          <!-- 2. Detailed Test Cases -->
+          <div class="accordion-item">
+            <h2 class="accordion-header">
+              <button class="accordion-button" type="button" data-bs-toggle="collapse" data-bs-target="#collapseTestCases">
+                <i class="bi bi-list-check me-2 text-success"></i>Detailed Test Cases
+                <span class="badge bg-success ms-2" id="badge-testcases">0</span>
+              </button>
+            </h2>
+            <div id="collapseTestCases" class="accordion-collapse collapse show" data-bs-parent="">
+              <div class="accordion-body p-0" id="testCasesContent"></div>
+            </div>
+          </div>
+
+          <!-- 3. Negative Test Cases -->
+          <div class="accordion-item">
+            <h2 class="accordion-header">
+              <button class="accordion-button" type="button" data-bs-toggle="collapse" data-bs-target="#collapseNegative">
+                <i class="bi bi-x-circle me-2 text-danger"></i>Negative Test Cases
+                <span class="badge bg-danger ms-2" id="badge-negative">0</span>
+              </button>
+            </h2>
+            <div id="collapseNegative" class="accordion-collapse collapse show" data-bs-parent="">
+              <div class="accordion-body p-0" id="negativeCasesContent"></div>
+            </div>
+          </div>
+
+          <!-- 4. Edge Cases -->
+          <div class="accordion-item">
+            <h2 class="accordion-header">
+              <button class="accordion-button" type="button" data-bs-toggle="collapse" data-bs-target="#collapseEdge">
+                <i class="bi bi-lightning me-2 text-warning"></i>Edge Cases
+                <span class="badge bg-warning text-dark ms-2" id="badge-edge">0</span>
+              </button>
+            </h2>
+            <div id="collapseEdge" class="accordion-collapse collapse show" data-bs-parent="">
+              <div class="accordion-body" id="edgeCasesContent"></div>
+            </div>
+          </div>
+
+          <!-- 5. UI/UX Validation Points -->
+          <div class="accordion-item">
+            <h2 class="accordion-header">
+              <button class="accordion-button" type="button" data-bs-toggle="collapse" data-bs-target="#collapseUIUX">
+                <i class="bi bi-palette me-2 text-info"></i>UI/UX Validation Points
+                <span class="badge bg-info ms-2" id="badge-uiux">0</span>
+              </button>
+            </h2>
+            <div id="collapseUIUX" class="accordion-collapse collapse show" data-bs-parent="">
+              <div class="accordion-body" id="uiuxContent"></div>
+            </div>
+          </div>
+
+        </div>
+      </div>
+    </div>
 
   </div>
+
+</div>
 </div>
 
 <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/js/bootstrap.bundle.min.js"></script>
 <script>
+// ═══════════════════════════════════════════════════════
+// Tab Navigation Controller
+// ═══════════════════════════════════════════════════════
+const TabNav = {
+  active: 'id-lookup',
+
+  switchTo(tabName) {
+    if (this.active === tabName) return;
+    this.active = tabName;
+
+    // Update tab link styling
+    document.querySelectorAll('#moduleTabs .nav-link').forEach(a => {
+      a.classList.toggle('active', a.dataset.module === tabName);
+    });
+
+    // Toggle module visibility (display:none/block to preserve state)
+    document.getElementById('module-id-lookup').style.display =
+      tabName === 'id-lookup' ? 'block' : 'none';
+    document.getElementById('module-video-analysis').style.display =
+      tabName === 'video-analysis' ? 'block' : 'none';
+  }
+};
+
+// ═══════════════════════════════════════════════════════
+// App (ID-Based Lookup) - Preserved from original
+// ═══════════════════════════════════════════════════════
 const App = {
   data: {},
 
@@ -139,7 +446,6 @@ const App = {
     document.getElementById('issueKeyInput').focus();
   },
 
-  // ── API call (credentials live server-side) ──────────────────────
   async jira(endpoint) {
     const resp = await fetch('/api/jira', {
       method:  'POST',
@@ -153,7 +459,6 @@ const App = {
     return json;
   },
 
-  // ── Search ───────────────────────────────────────────────────────
   async search() {
     const key = document.getElementById('issueKeyInput').value.trim().toUpperCase();
     if (!key) return;
@@ -163,12 +468,10 @@ const App = {
     document.getElementById('results').style.display = 'none';
 
     try {
-      // 1. Main issue (v3 API)
       const issue = await this.jira(
         `/rest/api/3/issue/${key}?fields=summary,issuetype,status,priority,assignee,reporter,subtasks,issuelinks,parent`
       );
 
-      // 2. Direct children via JQL (v3 search/jql endpoint)
       let children = [];
       try {
         const cs = await this.jira(
@@ -177,7 +480,6 @@ const App = {
         children = cs.issues || [];
       } catch (_) {}
 
-      // 3. Classic Epic Link children (Jira classic projects)
       if ((issue.fields?.issuetype?.name || '').toLowerCase() === 'epic') {
         try {
           const es = await this.jira(
@@ -193,7 +495,6 @@ const App = {
       const subtasks = issue.fields?.subtasks || [];
       const linked   = issue.fields?.issuelinks || [];
 
-      // 4. Test cases — any child/subtask/linked whose type contains "test"
       const seenKeys = new Set();
       const tests    = [];
       const addTest  = (item) => {
@@ -222,12 +523,10 @@ const App = {
     return name ? name.toLowerCase().includes('test') : false;
   },
 
-  // ── Render ───────────────────────────────────────────────────────
   render() {
     const { issue, children, subtasks, linked, tests } = this.data;
     const f = issue.fields || {};
 
-    // Header
     document.getElementById('issueHeader').innerHTML = `
       <div class="card-body">
         <div class="d-flex gap-3 align-items-start">
@@ -249,7 +548,6 @@ const App = {
         </div>
       </div>`;
 
-    // Stats
     const stats = [
       { lbl: 'Child Issues', n: children.length, icon: 'bi-diagram-3',     cls: 'text-primary' },
       { lbl: 'Subtasks',     n: subtasks.length, icon: 'bi-list-task',     cls: 'text-success' },
@@ -291,7 +589,6 @@ const App = {
     el.innerHTML = (map[tab] || (() => ''))();
   },
 
-  // ── Tables ───────────────────────────────────────────────────────
   issueTable(issues) {
     const rows = issues.map(i => {
       const f = i.fields || {};
@@ -358,7 +655,6 @@ const App = {
     </div>`;
   },
 
-  // ── Helpers ──────────────────────────────────────────────────────
   typeIcon(name, size = 20) {
     const n = (name || '').toLowerCase();
     let cls = 't-other', ltr = '?';
@@ -413,6 +709,509 @@ const App = {
   clearError() { document.getElementById('errorAlert').style.display = 'none'; }
 };
 
+// ═══════════════════════════════════════════════════════
+// Video Analysis Module
+// ═══════════════════════════════════════════════════════
+const VideoAnalysis = {
+  selectedFile: null,
+  lastFile: null,
+
+  onFileSelect(input) {
+    const file = input.files[0];
+    this.clearFileError();
+
+    if (!file) {
+      this.selectedFile = null;
+      this.updateUI();
+      return;
+    }
+
+    // Validate file type
+    const validTypes = ['video/mp4', 'video/webm', 'video/avi', 'video/x-msvideo', 'video/quicktime', 'video/x-matroska'];
+    const ext = file.name.split('.').pop().toLowerCase();
+    const validExts = ['mp4', 'webm', 'avi', 'mov', 'mkv'];
+
+    if (!validExts.includes(ext)) {
+      this.showFileError(`Unsupported file format ".${ext}". Please upload MP4, WebM, AVI, MOV, or MKV.`);
+      this.selectedFile = null;
+      this.updateUI();
+      return;
+    }
+
+    // Validate file size
+    if (file.size === 0) {
+      this.showFileError('The selected file is empty.');
+      this.selectedFile = null;
+      this.updateUI();
+      return;
+    }
+
+    const maxSize = 100 * 1024 * 1024; // 100 MB client-side limit
+    if (file.size > maxSize) {
+      this.showFileError(`File too large (${this.formatSize(file.size)}). Maximum size is 100 MB.`);
+      this.selectedFile = null;
+      this.updateUI();
+      return;
+    }
+
+    this.selectedFile = file;
+    this.updateUI();
+  },
+
+  updateUI() {
+    const zone = document.getElementById('uploadZone');
+    const info = document.getElementById('fileInfo');
+    const btn = document.getElementById('analyzeBtn');
+
+    if (this.selectedFile) {
+      zone.classList.add('has-file');
+      info.style.display = 'block';
+      document.getElementById('fileName').textContent = this.selectedFile.name;
+      document.getElementById('fileSize').textContent = this.formatSize(this.selectedFile.size);
+      btn.disabled = false;
+    } else {
+      zone.classList.remove('has-file');
+      info.style.display = 'none';
+      btn.disabled = true;
+    }
+  },
+
+  async upload() {
+    if (!this.selectedFile) return;
+    this.lastFile = this.selectedFile;
+
+    // Hide previous results/errors
+    document.getElementById('videoResults').style.display = 'none';
+    document.getElementById('videoError').style.display = 'none';
+    document.getElementById('videoProgress').style.display = 'block';
+    document.getElementById('analyzeBtn').disabled = true;
+
+    const formData = new FormData();
+    formData.append('video', this.selectedFile);
+
+    try {
+      // Upload with progress tracking
+      const result = await this.uploadWithProgress(formData);
+
+      // Show processing state
+      document.getElementById('videoProgress').style.display = 'none';
+      document.getElementById('videoProcessing').style.display = 'block';
+
+      // Parse response (uploadWithProgress already waited for server response)
+      if (result.success) {
+        this.renderResults(result);
+      } else {
+        this.showError(result.error || 'Analysis failed.');
+      }
+
+    } catch (err) {
+      this.showError(err.message || 'Upload failed. Please try again.');
+    } finally {
+      document.getElementById('videoProgress').style.display = 'none';
+      document.getElementById('videoProcessing').style.display = 'none';
+      document.getElementById('analyzeBtn').disabled = false;
+    }
+  },
+
+  uploadWithProgress(formData) {
+    return new Promise((resolve, reject) => {
+      const xhr = new XMLHttpRequest();
+      xhr.open('POST', '/api/analyze-video');
+
+      xhr.upload.onprogress = (e) => {
+        if (e.lengthComputable) {
+          const pct = Math.round((e.loaded / e.total) * 100);
+          const bar = document.getElementById('uploadProgressBar');
+          bar.style.width = pct + '%';
+          bar.textContent = pct + '%';
+        }
+      };
+
+      xhr.upload.onload = () => {
+        // Upload complete, now waiting for server processing
+        document.getElementById('videoProgress').style.display = 'none';
+        document.getElementById('videoProcessing').style.display = 'block';
+      };
+
+      xhr.onload = () => {
+        try {
+          const data = JSON.parse(xhr.responseText);
+          if (xhr.status >= 200 && xhr.status < 300) {
+            resolve(data);
+          } else {
+            reject(new Error(data.error || `Server error (${xhr.status})`));
+          }
+        } catch (e) {
+          reject(new Error('Invalid response from server.'));
+        }
+      };
+
+      xhr.onerror = () => reject(new Error('Network error. Please check your connection.'));
+      xhr.ontimeout = () => reject(new Error('Request timed out. Try a shorter video.'));
+      xhr.timeout = 300000; // 5 min timeout for large videos
+
+      xhr.send(formData);
+    });
+  },
+
+  renderResults(data) {
+    const { artifacts, summary } = data;
+
+    // Summary badges
+    document.getElementById('artifactSummary').innerHTML = `
+      <span class="badge bg-primary"><i class="bi bi-diagram-3 me-1"></i>${summary.test_scenarios} Scenarios</span>
+      <span class="badge bg-success"><i class="bi bi-list-check me-1"></i>${summary.test_cases} Test Cases</span>
+      <span class="badge bg-danger"><i class="bi bi-x-circle me-1"></i>${summary.negative_cases} Negative Cases</span>
+      <span class="badge bg-warning text-dark"><i class="bi bi-lightning me-1"></i>${summary.edge_cases} Edge Cases</span>
+      <span class="badge bg-info"><i class="bi bi-palette me-1"></i>${summary.ui_ux_points} UI/UX Points</span>
+    `;
+
+    // Update accordion badges
+    document.getElementById('badge-scenarios').textContent = summary.test_scenarios;
+    document.getElementById('badge-testcases').textContent = summary.test_cases;
+    document.getElementById('badge-negative').textContent = summary.negative_cases;
+    document.getElementById('badge-edge').textContent = summary.edge_cases;
+    document.getElementById('badge-uiux').textContent = summary.ui_ux_points;
+
+    // 1. Test Scenarios
+    this.renderScenarios(artifacts.test_scenarios || []);
+
+    // 2. Detailed Test Cases
+    this.renderTestCaseTable(artifacts.test_cases || [], 'testCasesContent');
+
+    // 3. Negative Test Cases
+    this.renderTestCaseTable(artifacts.negative_cases || [], 'negativeCasesContent');
+
+    // 4. Edge Cases
+    this.renderEdgeCases(artifacts.edge_cases || []);
+
+    // 5. UI/UX Points
+    this.renderUIUXPoints(artifacts.ui_ux_points || []);
+
+    document.getElementById('videoResults').style.display = 'block';
+  },
+
+  renderScenarios(scenarios) {
+    if (!scenarios.length) {
+      document.getElementById('scenariosContent').innerHTML = '<p class="text-muted">No scenarios generated.</p>';
+      return;
+    }
+    const html = scenarios.map((s, i) => `
+      <div class="card mb-2">
+        <div class="card-body py-2 px-3">
+          <h6 class="mb-1"><span class="badge bg-primary me-2">${i + 1}</span>${this.esc(s.title || '')}</h6>
+          <div class="ms-4">
+            <ol class="mb-1 small">
+              ${(s.steps || []).map(step => `<li>${this.esc(step)}</li>`).join('')}
+            </ol>
+            <p class="mb-0 small"><strong>Expected End State:</strong> ${this.esc(s.expected_end_state || '')}</p>
+          </div>
+        </div>
+      </div>
+    `).join('');
+    document.getElementById('scenariosContent').innerHTML = html;
+  },
+
+  renderTestCaseTable(cases, containerId) {
+    if (!cases.length) {
+      document.getElementById(containerId).innerHTML = '<p class="text-muted p-3">No test cases generated.</p>';
+      return;
+    }
+    const rows = cases.map(tc => `
+      <tr>
+        <td><code>${this.esc(tc.test_case_id || '')}</code></td>
+        <td><strong>${this.esc(tc.title || '')}</strong></td>
+        <td class="small">${this.esc(tc.preconditions || '-')}</td>
+        <td class="small">
+          <ol class="mb-0 ps-3">
+            ${(tc.steps || []).map(s => `<li>${this.esc(s)}</li>`).join('')}
+          </ol>
+        </td>
+        <td class="small">${this.esc(tc.expected_result || '')}</td>
+        <td>${this.priorityBadge(tc.priority)}</td>
+      </tr>
+    `).join('');
+
+    document.getElementById(containerId).innerHTML = `
+      <div class="table-responsive">
+        <table class="table table-bordered test-case-table mb-0">
+          <thead class="table-light">
+            <tr>
+              <th style="width:100px">ID</th>
+              <th style="width:180px">Title</th>
+              <th style="width:150px">Preconditions</th>
+              <th>Steps</th>
+              <th style="width:180px">Expected Result</th>
+              <th style="width:80px">Priority</th>
+            </tr>
+          </thead>
+          <tbody>${rows}</tbody>
+        </table>
+      </div>
+    `;
+  },
+
+  renderEdgeCases(cases) {
+    if (!cases.length) {
+      document.getElementById('edgeCasesContent').innerHTML = '<p class="text-muted">No edge cases generated.</p>';
+      return;
+    }
+
+    // Group by category
+    const groups = {};
+    cases.forEach(c => {
+      const cat = c.category || 'other';
+      if (!groups[cat]) groups[cat] = [];
+      groups[cat].push(c);
+    });
+
+    let html = '';
+    for (const [cat, items] of Object.entries(groups)) {
+      html += `<h6 class="edge-case-category mt-3 mb-2">${this.esc(cat.replace(/_/g, ' '))}</h6>`;
+      html += '<ul class="list-unstyled ms-3">';
+      items.forEach(item => {
+        html += `<li class="mb-2">
+          <div class="small"><strong>${this.esc(item.description || '')}</strong></div>
+          <div class="small text-muted">Expected: ${this.esc(item.expected_behavior || '')}</div>
+        </li>`;
+      });
+      html += '</ul>';
+    }
+    document.getElementById('edgeCasesContent').innerHTML = html;
+  },
+
+  renderUIUXPoints(points) {
+    if (!points.length) {
+      document.getElementById('uiuxContent').innerHTML = '<p class="text-muted">No UI/UX points generated.</p>';
+      return;
+    }
+    const html = points.map(p => `
+      <div class="checklist-item d-flex align-items-start gap-2">
+        <i class="bi bi-check-square text-info mt-1"></i>
+        <div>
+          <span class="badge bg-light text-dark border me-2 small">${this.esc((p.category || '').replace(/_/g, ' '))}</span>
+          <span class="small">${this.esc(p.label || '')}</span>
+        </div>
+      </div>
+    `).join('');
+    document.getElementById('uiuxContent').innerHTML = html;
+  },
+
+  priorityBadge(priority) {
+    const p = (priority || 'medium').toLowerCase();
+    const cls = {
+      critical: 'priority-critical',
+      high: 'priority-high',
+      medium: 'priority-medium',
+      low: 'priority-low'
+    }[p] || 'bg-secondary';
+    return `<span class="badge ${cls}">${this.esc(priority || 'Medium')}</span>`;
+  },
+
+  showError(msg) {
+    document.getElementById('videoErrorMsg').textContent = msg;
+    document.getElementById('videoError').style.display = 'block';
+    document.getElementById('videoProcessing').style.display = 'none';
+    document.getElementById('videoProgress').style.display = 'none';
+  },
+
+  showFileError(msg) {
+    document.getElementById('fileErrorMsg').textContent = msg;
+    document.getElementById('fileError').style.display = 'block';
+  },
+
+  clearFileError() {
+    document.getElementById('fileError').style.display = 'none';
+  },
+
+  retry() {
+    document.getElementById('videoError').style.display = 'none';
+    if (this.lastFile) {
+      this.selectedFile = this.lastFile;
+      this.upload();
+    }
+  },
+
+  formatSize(bytes) {
+    if (bytes < 1024) return bytes + ' B';
+    if (bytes < 1024 * 1024) return (bytes / 1024).toFixed(1) + ' KB';
+    return (bytes / (1024 * 1024)).toFixed(1) + ' MB';
+  },
+
+  esc(s) {
+    return String(s)
+      .replace(/&/g,'&amp;').replace(/</g,'&lt;')
+      .replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+  }
+};
+
+// ═══════════════════════════════════════════════════════
+// AI Test Case Generator (from Story Description)
+// ═══════════════════════════════════════════════════════
+const AITestGen = {
+  artifacts: null,
+
+  async generate() {
+    const key = document.getElementById('issueKeyInput').value.trim().toUpperCase();
+    if (!key) return;
+
+    document.getElementById('aiGenLoading').style.display = 'block';
+    document.getElementById('aiGenError').style.display = 'none';
+    document.getElementById('aiGenResults').style.display = 'none';
+    document.getElementById('generateTestCasesBtn').disabled = true;
+    document.getElementById('generateTestCasesBtn').innerHTML =
+      '<span class="spinner-border spinner-border-sm me-1"></span>Generating...';
+
+    try {
+      const resp = await fetch('/api/generate-testcases', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ issueKey: key })
+      });
+      const data = await resp.json();
+
+      if (!resp.ok || !data.success) {
+        throw new Error(data.error || 'Generation failed.');
+      }
+
+      this.artifacts = data.artifacts;
+      this.renderResults(data);
+
+    } catch (e) {
+      document.getElementById('aiGenErrorMsg').textContent = e.message;
+      document.getElementById('aiGenError').style.display = 'block';
+    } finally {
+      document.getElementById('aiGenLoading').style.display = 'none';
+      document.getElementById('generateTestCasesBtn').disabled = false;
+      document.getElementById('generateTestCasesBtn').innerHTML =
+        '<i class="bi bi-magic me-1"></i>Generate Test Cases';
+    }
+  },
+
+  renderResults(data) {
+    const { artifacts, counts, issueKey } = data;
+
+    document.getElementById('aiGenIssueKey').textContent = issueKey;
+    document.getElementById('aiGenSummaryBadges').innerHTML = `
+      <span class="badge bg-light text-dark">${counts.test_scenarios} Scenarios</span>
+      <span class="badge bg-light text-dark">${counts.test_cases} Cases</span>
+      <span class="badge bg-light text-dark">${counts.negative_cases} Negative</span>
+      <span class="badge bg-light text-dark">${counts.edge_cases} Edge</span>
+      <span class="badge bg-light text-dark">${counts.ui_ux_points} UI/UX</span>
+    `;
+
+    document.getElementById('ai-cnt-scenarios').textContent = counts.test_scenarios;
+    document.getElementById('ai-cnt-testcases').textContent = counts.test_cases;
+    document.getElementById('ai-cnt-negative').textContent = counts.negative_cases;
+    document.getElementById('ai-cnt-edge').textContent = counts.edge_cases;
+    document.getElementById('ai-cnt-uiux').textContent = counts.ui_ux_points;
+
+    document.getElementById('aiGenResults').style.display = 'block';
+    this.showTab('scenarios');
+  },
+
+  showTab(tab) {
+    document.querySelectorAll('#aiGenTabs .nav-link').forEach(a =>
+      a.classList.toggle('active', a.dataset.aitab === tab));
+
+    const el = document.getElementById('aiGenTabContent');
+    const a = this.artifacts;
+    if (!a) return;
+
+    const map = {
+      scenarios: () => this.renderScenarios(a.test_scenarios || []),
+      testcases: () => this.renderTestCaseTable(a.test_cases || []),
+      negative:  () => this.renderTestCaseTable(a.negative_cases || []),
+      edge:      () => this.renderEdgeCases(a.edge_cases || []),
+      uiux:      () => this.renderUIUX(a.ui_ux_points || [])
+    };
+
+    el.innerHTML = (map[tab] || (() => ''))();
+  },
+
+  renderScenarios(scenarios) {
+    if (!scenarios.length) return '<p class="text-muted">No scenarios generated.</p>';
+    return scenarios.map((s, i) => `
+      <div class="card mb-2">
+        <div class="card-body py-2 px-3">
+          <h6 class="mb-1"><span class="badge bg-primary me-2">${i + 1}</span>${this.esc(s.title || '')}</h6>
+          <ol class="mb-1 small ms-4">
+            ${(s.steps || []).map(step => `<li>${this.esc(step)}</li>`).join('')}
+          </ol>
+          <p class="mb-0 small"><strong>Expected:</strong> ${this.esc(s.expected_end_state || '')}</p>
+        </div>
+      </div>
+    `).join('');
+  },
+
+  renderTestCaseTable(cases) {
+    if (!cases.length) return '<p class="text-muted">No test cases generated.</p>';
+    const rows = cases.map(tc => `
+      <tr>
+        <td><code>${this.esc(tc.test_case_id || '')}</code></td>
+        <td><strong>${this.esc(tc.title || '')}</strong></td>
+        <td class="small">${this.esc(tc.preconditions || '-')}</td>
+        <td class="small"><ol class="mb-0 ps-3">${(tc.steps || []).map(s => `<li>${this.esc(s)}</li>`).join('')}</ol></td>
+        <td class="small">${this.esc(tc.expected_result || '')}</td>
+        <td>${this.priorityBadge(tc.priority)}</td>
+      </tr>
+    `).join('');
+    return `<div class="table-responsive">
+      <table class="table table-bordered small mb-0">
+        <thead class="table-light">
+          <tr><th>ID</th><th>Title</th><th>Preconditions</th><th>Steps</th><th>Expected</th><th>Priority</th></tr>
+        </thead>
+        <tbody>${rows}</tbody>
+      </table>
+    </div>`;
+  },
+
+  renderEdgeCases(cases) {
+    if (!cases.length) return '<p class="text-muted">No edge cases generated.</p>';
+    const groups = {};
+    cases.forEach(c => {
+      const cat = c.category || 'other';
+      if (!groups[cat]) groups[cat] = [];
+      groups[cat].push(c);
+    });
+    let html = '';
+    for (const [cat, items] of Object.entries(groups)) {
+      html += `<h6 class="text-primary text-capitalize mt-3 mb-2">${this.esc(cat.replace(/_/g, ' '))}</h6><ul class="ms-3">`;
+      items.forEach(item => {
+        html += `<li class="mb-2 small"><strong>${this.esc(item.description || '')}</strong><br><span class="text-muted">Expected: ${this.esc(item.expected_behavior || '')}</span></li>`;
+      });
+      html += '</ul>';
+    }
+    return html;
+  },
+
+  renderUIUX(points) {
+    if (!points.length) return '<p class="text-muted">No UI/UX points generated.</p>';
+    return points.map(p => `
+      <div class="d-flex align-items-start gap-2 py-1 border-bottom">
+        <i class="bi bi-check-square text-info mt-1"></i>
+        <div>
+          <span class="badge bg-light text-dark border me-2 small">${this.esc((p.category || '').replace(/_/g, ' '))}</span>
+          <span class="small">${this.esc(p.label || '')}</span>
+        </div>
+      </div>
+    `).join('');
+  },
+
+  priorityBadge(priority) {
+    const p = (priority || 'medium').toLowerCase();
+    const cls = { critical: 'priority-critical', high: 'priority-high', medium: 'priority-medium', low: 'priority-low' }[p] || 'bg-secondary';
+    return `<span class="badge ${cls}">${this.esc(priority || 'Medium')}</span>`;
+  },
+
+  esc(s) {
+    return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+  }
+};
+
+// ═══════════════════════════════════════════════════════
+// Initialize
+// ═══════════════════════════════════════════════════════
 document.addEventListener('DOMContentLoaded', () => App.init());
 </script>
 </body>
