@@ -1,0 +1,419 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Jira Issue Explorer</title>
+<link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/css/bootstrap.min.css" rel="stylesheet">
+<link href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.3/font/bootstrap-icons.min.css" rel="stylesheet">
+<style>
+  :root { --jira: #0052CC; --jira-bg: #F4F5F7; }
+  body { background: var(--jira-bg); font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; }
+  .navbar { background: var(--jira) !important; }
+  .card   { border: none; box-shadow: 0 1px 4px rgba(0,0,0,.1); border-radius: 8px; }
+
+  .t-icon {
+    display: inline-flex; align-items: center; justify-content: center;
+    border-radius: 3px; font-weight: 700; color: #fff; flex-shrink: 0; font-size: 11px;
+  }
+  .t-epic    { background: #8777D9; }
+  .t-story   { background: #36B37E; }
+  .t-task    { background: #4C9AFF; }
+  .t-subtask { background: #2684FF; border-radius: 50% !important; }
+  .t-bug     { background: #FF5630; }
+  .t-test    { background: #00B8D9; }
+  .t-other   { background: #97A0AF; }
+
+  .s-todo       { background: #DFE1E6; color: #42526E; }
+  .s-inprogress { background: #DEEBFF; color: #0052CC; }
+  .s-done       { background: #E3FCEF; color: #006644; }
+  .s-blocked    { background: #FFEBE6; color: #BF2600; }
+  .s-review     { background: #EAE6FF; color: #403294; }
+
+  .p-highest { color: #CD1316; }
+  .p-high    { color: #E9494A; }
+  .p-medium  { color: #E97F33; }
+  .p-low     { color: #2D8738; }
+  .p-lowest  { color: #57A55A; }
+
+  .issue-key { font-weight: 600; color: var(--jira); text-decoration: none; }
+  .issue-key:hover { text-decoration: underline; }
+  .issue-row:hover { background: #FAFBFC; }
+  .issue-summary { max-width: 380px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; display: block; }
+
+  .stat-card { text-align: center; padding: 1rem .5rem; }
+  .stat-num  { font-size: 1.8rem; font-weight: 700; color: var(--jira); }
+  .stat-lbl  { font-size: .72rem; color: #6B778C; text-transform: uppercase; letter-spacing: .06em; }
+
+  .search-wrap { max-width: 620px; margin: 0 auto; }
+  #loadingSpinner { display: none; }
+  #results        { display: none; }
+  #errorAlert     { display: none; }
+</style>
+</head>
+<body>
+
+<nav class="navbar navbar-dark px-3 py-2">
+  <span class="navbar-brand fw-bold fs-6">
+    <i class="bi bi-kanban-fill me-2"></i>Jira Issue Explorer
+  </span>
+</nav>
+
+<div class="container py-4">
+
+  <!-- Search -->
+  <div class="search-wrap mb-4">
+    <div class="card p-4">
+      <h6 class="text-center text-muted mb-3">Enter an issue key to explore its hierarchy</h6>
+      <div class="input-group input-group-lg">
+        <span class="input-group-text bg-white"><i class="bi bi-search text-muted"></i></span>
+        <input type="text" class="form-control" id="issueKeyInput"
+               placeholder="e.g. PROJ-123"
+               onkeyup="if(event.key==='Enter') App.search()">
+        <button class="btn btn-primary px-4" id="searchBtn" onclick="App.search()">Search</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Loading -->
+  <div id="loadingSpinner" class="text-center py-5">
+    <div class="spinner-border text-primary" role="status"></div>
+    <p class="mt-2 text-muted small">Fetching from Jira…</p>
+  </div>
+
+  <!-- Error -->
+  <div id="errorAlert" class="alert alert-danger">
+    <i class="bi bi-exclamation-triangle-fill me-2"></i>
+    <span id="errorMsg"></span>
+  </div>
+
+  <!-- Results -->
+  <div id="results">
+
+    <div class="card mb-3" id="issueHeader"></div>
+
+    <div class="row g-3 mb-3" id="statsRow"></div>
+
+    <div class="card">
+      <div class="card-body p-0">
+        <ul class="nav nav-tabs px-3 pt-2 border-bottom-0" id="mainTabs">
+          <li class="nav-item">
+            <a class="nav-link active" href="#" data-tab="children"
+               onclick="App.showTab('children');return false;">
+              Child Issues <span class="badge bg-secondary ms-1" id="cnt-children">0</span>
+            </a>
+          </li>
+          <li class="nav-item">
+            <a class="nav-link" href="#" data-tab="subtasks"
+               onclick="App.showTab('subtasks');return false;">
+              Subtasks <span class="badge bg-secondary ms-1" id="cnt-subtasks">0</span>
+            </a>
+          </li>
+          <li class="nav-item">
+            <a class="nav-link" href="#" data-tab="tests"
+               onclick="App.showTab('tests');return false;">
+              <i class="bi bi-check2-circle me-1"></i>Test Cases
+              <span class="badge bg-info ms-1" id="cnt-tests">0</span>
+            </a>
+          </li>
+          <li class="nav-item">
+            <a class="nav-link" href="#" data-tab="linked"
+               onclick="App.showTab('linked');return false;">
+              Linked Issues <span class="badge bg-secondary ms-1" id="cnt-linked">0</span>
+            </a>
+          </li>
+        </ul>
+        <div id="tabContent" class="p-3"></div>
+      </div>
+    </div>
+
+  </div>
+</div>
+
+<script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/js/bootstrap.bundle.min.js"></script>
+<script>
+const App = {
+  data: {},
+
+  init() {
+    document.getElementById('issueKeyInput').focus();
+  },
+
+  // ── API call (credentials live server-side) ──────────────────────
+  async jira(endpoint) {
+    const resp = await fetch('/api/jira', {
+      method:  'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body:    JSON.stringify({ endpoint })
+    });
+    const json = await resp.json();
+    if (!resp.ok) {
+      throw new Error(json.error || json.errorMessages?.join(', ') || `HTTP ${resp.status}`);
+    }
+    return json;
+  },
+
+  // ── Search ───────────────────────────────────────────────────────
+  async search() {
+    const key = document.getElementById('issueKeyInput').value.trim().toUpperCase();
+    if (!key) return;
+
+    this.setLoading(true);
+    this.clearError();
+    document.getElementById('results').style.display = 'none';
+
+    try {
+      // 1. Main issue (v3 API)
+      const issue = await this.jira(
+        `/rest/api/3/issue/${key}?fields=summary,issuetype,status,priority,assignee,reporter,subtasks,issuelinks,parent`
+      );
+
+      // 2. Direct children via JQL (v3 search/jql endpoint)
+      let children = [];
+      try {
+        const cs = await this.jira(
+          `/rest/api/3/search/jql?jql=parent="${key}"&maxResults=100&fields=summary,issuetype,status,priority,assignee`
+        );
+        children = cs.issues || [];
+      } catch (_) {}
+
+      // 3. Classic Epic Link children (Jira classic projects)
+      if ((issue.fields?.issuetype?.name || '').toLowerCase() === 'epic') {
+        try {
+          const es = await this.jira(
+            `/rest/api/3/search/jql?jql="Epic Link"="${key}"&maxResults=100&fields=summary,issuetype,status,priority,assignee`
+          );
+          const seen = new Set(children.map(i => i.key));
+          for (const i of (es.issues || [])) {
+            if (!seen.has(i.key)) children.push(i);
+          }
+        } catch (_) {}
+      }
+
+      const subtasks = issue.fields?.subtasks || [];
+      const linked   = issue.fields?.issuelinks || [];
+
+      // 4. Test cases — any child/subtask/linked whose type contains "test"
+      const seenKeys = new Set();
+      const tests    = [];
+      const addTest  = (item) => {
+        if (!item || seenKeys.has(item.key)) return;
+        seenKeys.add(item.key);
+        tests.push(item);
+      };
+      children.forEach(i => { if (this.isTest(i.fields?.issuetype?.name)) addTest(i); });
+      subtasks.forEach(i => { if (this.isTest(i.fields?.issuetype?.name)) addTest(i); });
+      linked.forEach(l => {
+        const li = l.outwardIssue || l.inwardIssue;
+        if (li && this.isTest(li.fields?.issuetype?.name)) addTest(li);
+      });
+
+      this.data = { issue, children, subtasks, linked, tests };
+      this.render();
+
+    } catch (e) {
+      this.setError(e.message);
+    } finally {
+      this.setLoading(false);
+    }
+  },
+
+  isTest(name) {
+    return name ? name.toLowerCase().includes('test') : false;
+  },
+
+  // ── Render ───────────────────────────────────────────────────────
+  render() {
+    const { issue, children, subtasks, linked, tests } = this.data;
+    const f = issue.fields || {};
+
+    // Header
+    document.getElementById('issueHeader').innerHTML = `
+      <div class="card-body">
+        <div class="d-flex gap-3 align-items-start">
+          <div class="mt-1">${this.typeIcon(f.issuetype?.name, 28)}</div>
+          <div class="flex-grow-1">
+            <div class="d-flex flex-wrap align-items-center gap-2 mb-1">
+              <span class="issue-key">${issue.key}</span>
+              <span class="badge rounded-pill ${this.sCls(f.status?.name)}">${f.status?.name || '-'}</span>
+              ${f.priority ? `<span class="small ${this.pCls(f.priority.name)}">${f.priority.name}</span>` : ''}
+            </div>
+            <h5 class="mb-2 fw-semibold">${this.esc(f.summary || '')}</h5>
+            <div class="d-flex flex-wrap gap-3 text-muted small">
+              <span><i class="bi bi-tag me-1"></i>${f.issuetype?.name || '-'}</span>
+              ${f.assignee ? `<span><i class="bi bi-person me-1"></i>${this.esc(f.assignee.displayName)}</span>` : ''}
+              ${f.reporter ? `<span><i class="bi bi-person-check me-1"></i>${this.esc(f.reporter.displayName)}</span>` : ''}
+              ${f.parent   ? `<span><i class="bi bi-arrow-up me-1"></i>Parent: <span class="issue-key">${f.parent.key}</span></span>` : ''}
+            </div>
+          </div>
+        </div>
+      </div>`;
+
+    // Stats
+    const stats = [
+      { lbl: 'Child Issues', n: children.length, icon: 'bi-diagram-3',     cls: 'text-primary' },
+      { lbl: 'Subtasks',     n: subtasks.length, icon: 'bi-list-task',     cls: 'text-success' },
+      { lbl: 'Test Cases',   n: tests.length,    icon: 'bi-check2-circle', cls: 'text-info'    },
+      { lbl: 'Linked',       n: linked.length,   icon: 'bi-link-45deg',    cls: 'text-warning' }
+    ];
+    document.getElementById('statsRow').innerHTML = stats.map(s => `
+      <div class="col-6 col-md-3">
+        <div class="card stat-card">
+          <i class="bi ${s.icon} ${s.cls} fs-3 mb-1"></i>
+          <div class="stat-num ${s.cls}">${s.n}</div>
+          <div class="stat-lbl">${s.lbl}</div>
+        </div>
+      </div>`).join('');
+
+    document.getElementById('cnt-children').textContent = children.length;
+    document.getElementById('cnt-subtasks').textContent = subtasks.length;
+    document.getElementById('cnt-tests').textContent    = tests.length;
+    document.getElementById('cnt-linked').textContent   = linked.length;
+
+    document.getElementById('results').style.display = 'block';
+    this.showTab('children');
+  },
+
+  showTab(tab) {
+    document.querySelectorAll('#mainTabs .nav-link').forEach(a =>
+      a.classList.toggle('active', a.dataset.tab === tab));
+
+    const { children, subtasks, linked, tests } = this.data;
+    const el = document.getElementById('tabContent');
+
+    const map = {
+      children: () => children.length ? this.issueTable(children) : this.empty('No child issues found', 'bi-diagram-3'),
+      subtasks: () => subtasks.length ? this.issueTable(subtasks) : this.empty('No subtasks found', 'bi-list-task'),
+      tests:    () => tests.length    ? this.issueTable(tests)    : this.empty('No test cases found. Test cases are issues whose type contains "Test".', 'bi-check2-circle'),
+      linked:   () => linked.length   ? this.linkedTable(linked)  : this.empty('No linked issues found', 'bi-link-45deg')
+    };
+
+    el.innerHTML = (map[tab] || (() => ''))();
+  },
+
+  // ── Tables ───────────────────────────────────────────────────────
+  issueTable(issues) {
+    const rows = issues.map(i => {
+      const f = i.fields || {};
+      return `<tr class="issue-row">
+        <td class="ps-3">${this.typeIcon(f.issuetype?.name, 18)}</td>
+        <td><span class="issue-key">${i.key}</span></td>
+        <td><span class="issue-summary" title="${this.esc(f.summary || '')}">${this.esc(f.summary || '-')}</span></td>
+        <td><span class="badge ${this.sCls(f.status?.name)}">${f.status?.name || '-'}</span></td>
+        <td class="small ${this.pCls(f.priority?.name)}">${f.priority?.name || '-'}</td>
+        <td class="small text-muted pe-3">${f.assignee ? this.esc(f.assignee.displayName) : '<em>Unassigned</em>'}</td>
+      </tr>`;
+    }).join('');
+    return `<div class="table-responsive">
+      <table class="table table-hover align-middle mb-0 small">
+        <thead class="table-light">
+          <tr>
+            <th class="ps-3" style="width:30px"></th>
+            <th style="width:110px">Key</th>
+            <th>Summary</th>
+            <th style="width:130px">Status</th>
+            <th style="width:90px">Priority</th>
+            <th class="pe-3" style="width:160px">Assignee</th>
+          </tr>
+        </thead>
+        <tbody>${rows}</tbody>
+      </table>
+    </div>`;
+  },
+
+  linkedTable(links) {
+    const rows = links.map(l => {
+      const issue = l.outwardIssue || l.inwardIssue;
+      if (!issue) return '';
+      const lbl = l.outwardIssue ? l.type?.outward : l.type?.inward;
+      const f   = issue.fields || {};
+      return `<tr class="issue-row">
+        <td class="ps-3">${this.typeIcon(f.issuetype?.name, 18)}</td>
+        <td><span class="issue-key">${issue.key}</span></td>
+        <td><span class="issue-summary" title="${this.esc(f.summary || '')}">${this.esc(f.summary || '-')}</span></td>
+        <td><span class="badge bg-light text-dark border">${this.esc(lbl || '')}</span></td>
+        <td class="pe-3"><span class="badge ${this.sCls(f.status?.name)}">${f.status?.name || '-'}</span></td>
+      </tr>`;
+    }).join('');
+    return `<div class="table-responsive">
+      <table class="table table-hover align-middle mb-0 small">
+        <thead class="table-light">
+          <tr>
+            <th class="ps-3" style="width:30px"></th>
+            <th style="width:110px">Key</th>
+            <th>Summary</th>
+            <th style="width:150px">Link Type</th>
+            <th class="pe-3" style="width:130px">Status</th>
+          </tr>
+        </thead>
+        <tbody>${rows}</tbody>
+      </table>
+    </div>`;
+  },
+
+  empty(msg, icon) {
+    return `<div class="text-center py-5 text-muted">
+      <i class="bi ${icon} fs-1 d-block mb-2 opacity-50"></i>
+      <p class="mb-0 small">${msg}</p>
+    </div>`;
+  },
+
+  // ── Helpers ──────────────────────────────────────────────────────
+  typeIcon(name, size = 20) {
+    const n = (name || '').toLowerCase();
+    let cls = 't-other', ltr = '?';
+    if      (n.includes('epic'))                { cls = 't-epic';    ltr = 'E'; }
+    else if (n.includes('story'))               { cls = 't-story';   ltr = 'S'; }
+    else if (n.includes('sub'))                 { cls = 't-subtask'; ltr = 's'; }
+    else if (n.includes('task'))                { cls = 't-task';    ltr = 'T'; }
+    else if (n.includes('bug'))                 { cls = 't-bug';     ltr = 'B'; }
+    else if (n.includes('test'))                { cls = 't-test';    ltr = 'T'; }
+    return `<span class="t-icon ${cls}" style="width:${size}px;height:${size}px;font-size:${Math.round(size*.5)}px">${ltr}</span>`;
+  },
+
+  sCls(s) {
+    s = (s || '').toLowerCase();
+    if (s === 'done' || s === 'closed' || s === 'resolved') return 's-done';
+    if (s.includes('progress')) return 's-inprogress';
+    if (s.includes('review'))   return 's-review';
+    if (s === 'blocked')        return 's-blocked';
+    return 's-todo';
+  },
+
+  pCls(p) {
+    switch ((p || '').toLowerCase()) {
+      case 'highest': return 'p-highest';
+      case 'high':    return 'p-high';
+      case 'medium':  return 'p-medium';
+      case 'low':     return 'p-low';
+      case 'lowest':  return 'p-lowest';
+      default:        return '';
+    }
+  },
+
+  esc(s) {
+    return String(s)
+      .replace(/&/g,'&amp;').replace(/</g,'&lt;')
+      .replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+  },
+
+  setLoading(on) {
+    document.getElementById('loadingSpinner').style.display = on ? 'block' : 'none';
+    const btn = document.getElementById('searchBtn');
+    btn.disabled = on;
+    btn.innerHTML = on
+      ? '<span class="spinner-border spinner-border-sm me-1"></span>Searching…'
+      : 'Search';
+  },
+
+  setError(msg)  {
+    document.getElementById('errorMsg').textContent = msg;
+    document.getElementById('errorAlert').style.display = 'block';
+  },
+  clearError() { document.getElementById('errorAlert').style.display = 'none'; }
+};
+
+document.addEventListener('DOMContentLoaded', () => App.init());
+</script>
+</body>
+</html>
